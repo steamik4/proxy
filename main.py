@@ -19,7 +19,7 @@ class ProxyModel(Base):
     port = Column(Integer)
     secret = Column(String)
     ping = Column(Integer, default=0)
-    category = Column(String, default="default", index=True) # "default" (обычные) или "whitelist" (белый список)
+    category = Column(String, default="default", index=True)  # "default" или "whitelist"
 
 
 Base.metadata.create_all(bind=engine)
@@ -35,7 +35,7 @@ class ProxyCreate(BaseModel):
     port: int
     secret: str
     ping: Optional[int] = 0
-    category: Optional[str] = "default"  # "default" или "whitelist"
+    category: Optional[str] = "default"
 
 
 class ProxyResponse(ProxyCreate):
@@ -69,7 +69,7 @@ def get_whitelist(db: Session = Depends(get_db)):
     return db.query(ProxyModel).filter(ProxyModel.category == "whitelist").all()
 
 
-# 3. ДОБАВИТЬ ПРОКСИ (с указанием категории: "default" или "whitelist")
+# 3. ДОБАВИТЬ ОБЫЧНЫЙ ПРОКСИ
 @app.post("/admin/add_proxy", response_model=ProxyResponse)
 def add_proxy(
     proxy: ProxyCreate,
@@ -87,7 +87,7 @@ def add_proxy(
         port=proxy.port,
         secret=proxy.secret,
         ping=proxy.ping,
-        category=proxy.category or "default",
+        category="default",
     )
     db.add(db_proxy)
     db.commit()
@@ -95,7 +95,33 @@ def add_proxy(
     return db_proxy
 
 
-# 4. УДАЛИТЬ ПРОКСИ
+# 4. ДОБАВИТЬ В БЕЛОЙ СПИСОК (БС)
+@app.post("/admin/add_whitelist", response_model=ProxyResponse)
+def add_whitelist(
+    proxy: ProxyCreate,
+    x_admin_token: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    if x_admin_token != ADMIN_SECRET_KEY:
+        raise HTTPException(
+            status_code=403, detail="Доступ запрещен: неверный админ-токен"
+        )
+
+    db_proxy = ProxyModel(
+        name=proxy.name,
+        server=proxy.server,
+        port=proxy.port,
+        secret=proxy.secret,
+        ping=proxy.ping,
+        category="whitelist",
+    )
+    db.add(db_proxy)
+    db.commit()
+    db.refresh(db_proxy)
+    return db_proxy
+
+
+# 5. УДАЛИТЬ ПРОКСИ ИЛИ БС
 @app.delete("/admin/delete_proxy/{proxy_id}")
 def delete_proxy(
     proxy_id: int,
@@ -109,8 +135,8 @@ def delete_proxy(
 
     db_proxy = db.query(ProxyModel).filter(ProxyModel.id == proxy_id).first()
     if not db_proxy:
-        raise HTTPException(status_code=404, detail="Прокси не найден")
+        raise HTTPException(status_code=404, detail="Запись не найдена")
 
     db.delete(db_proxy)
     db.commit()
-    return {"status": "success", "message": f"Прокси ID {proxy_id} удален"}
+    return {"status": "success", "message": f"Запись ID {proxy_id} удалена"}
